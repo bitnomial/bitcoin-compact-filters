@@ -1,0 +1,7 @@
+cradle:
+  cabal:
+    - path: "src"
+      component: "lib:bitcoin-compact-filters"
+
+    - path: "test"
+      component: "bitcoin-compact-filters:test:bitcoin-cf-tests"
