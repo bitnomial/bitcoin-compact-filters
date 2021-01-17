@@ -62,15 +62,22 @@ import Haskoin.Script (Script (..), ScriptOp (..))
 import Haskoin.Transaction (scriptOutput, txOut)
 import Haskoin.Util (decodeHex, encodeHex)
 
+-- | SIP hash parameter
 paramP :: Int
 paramP = 19
 
+-- | SIP hash parameter
 paramM :: Word64
 paramM = 784931
 
 -- | Hashes of scripts in the block
-newtype BlockFilter = BlockFilter {blockFilter :: [Word64]} deriving (Eq, Show)
+newtype BlockFilter = BlockFilter
+    { -- | Get the list of hashes in increasing order
+      blockFilter :: [Word64]
+    }
+    deriving (Eq, Show)
 
+-- | Number of elements in the filter
 blockFilterSize :: BlockFilter -> CompactSize
 blockFilterSize = CompactSize . length . blockFilter
 
@@ -86,7 +93,13 @@ filterHeaderFromHex = maybe (Left "Invalid hex") Right . decodeHex >=> decode . 
 genesisHeader :: BlockFilterHeader
 Right genesisHeader = BlockFilterHeader <$> decode (BS.replicate 32 0x0)
 
-blockFilterHeader :: BlockFilterHeader -> BlockFilter -> BlockFilterHeader
+-- | Calculate the header for the block filter
+blockFilterHeader ::
+    -- | previous header
+    BlockFilterHeader ->
+    -- | current filter
+    BlockFilter ->
+    BlockFilterHeader
 blockFilterHeader prev bf =
     BlockFilterHeader . doubleSHA256 $
         (encode . doubleSHA256) (encode bf) <> encode (getBFHeader prev)
@@ -95,7 +108,7 @@ instance Serialize BlockFilter where
     put bf = put (blockFilterSize bf) >> putByteString (constructGCS paramP $ blockFilter bf)
     get = get >>= fmap BlockFilter . getGolombRiceSet paramP . unCompactSize
 
--- | Scripts in the block which belong in the BIP158 block filter
+-- | Calculate the list of scripts which belong in the BIP158 block filter
 filterContents ::
     -- | previous output scripts spent in this block
     [ByteString] ->
@@ -111,15 +124,24 @@ filterContents prev b = filter scriptFilter prev <> these
         _ -> True
 
 -- | Construct a BIP158 filter from a block
-encodeFilter :: [ByteString] -> Block -> BlockFilter
+encodeFilter ::
+    -- | output scripts spent in this block
+    [ByteString] ->
+    Block ->
+    BlockFilter
 encodeFilter os b = BlockFilter s
   where
     h = headerHash $ blockHeader b
     bs = toSet $ filterContents os b
     s = hashedSetConstruct (sipKey h) paramM (length bs) bs
 
--- | Test membership
-isMember :: BlockHash -> [ByteString] -> BlockFilter -> Bool
+-- | Test membership.  The test succeeds if /any/ of the scripts matches the block filter.
+isMember ::
+    BlockHash ->
+    -- | Scripts we want to match against the filter
+    [ByteString] ->
+    BlockFilter ->
+    Bool
 isMember h bs (BlockFilter bf) = orderedScan hs bf
   where
     k = sipKey h
