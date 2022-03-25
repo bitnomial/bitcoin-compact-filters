@@ -19,9 +19,7 @@ import Control.Monad (replicateM, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT)
 import qualified Control.Monad.Trans.State.Strict as St
-import Data.Bits (shiftL, shiftR, testBit)
-import Data.Bitstream (Bitstream, Right)
-import qualified Data.Bitstream as BiS
+import Data.Bits (clearBit, setBit, shiftL, shiftR, testBit)
 import Data.Bool (bool)
 import Data.ByteArray.Hash (
     SipHash (..),
@@ -30,6 +28,7 @@ import Data.ByteArray.Hash (
  )
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import Data.Foldable (foldl')
 import Data.List (sort)
 import Data.Serialize (
@@ -72,8 +71,8 @@ paramM = 784931
 
 -- | Hashes of scripts in the block
 newtype BlockFilter = BlockFilter
-    { -- | Get the list of hashes in increasing order
-      blockFilter :: [Word64]
+    { blockFilter :: [Word64]
+    -- ^ Get the list of hashes in increasing order
     }
     deriving (Eq, Show)
 
@@ -221,6 +220,36 @@ toSet = dedup . sort
             | otherwise -> x0 : dedup xs
         xs -> xs
 
+{- | Golomb coded sets are not naturally expressed in bytes, but rather as a bit
+ stream
+-}
+data Bitstream
+    = Bitstream
+        BSL.ByteString
+        -- ^ Complete bytes written so far, in reverse order
+        {-# UNPACK #-} !Word8
+        -- ^ The current work byte
+        {-# UNPACK #-} !Int
+        -- ^ Pointer to the first open bit
+
+emptyB :: Bitstream
+emptyB = Bitstream mempty 0 7
+
+appendBit :: Bool -> Bitstream -> Bitstream
+appendBit b (Bitstream bytes inFlight cursor)
+    | cursor == 0 = Bitstream (BSL.cons nextInFlight bytes) 0 7
+    | otherwise = Bitstream bytes nextInFlight (cursor - 1)
+  where
+    nextInFlight = bool clearBit setBit b inFlight cursor
+
+asByteString :: Bitstream -> ByteString
+asByteString (Bitstream bytes inFlight cursor) =
+    BSL.toStrict $ BSL.reverse paddedBytes
+  where
+    paddedBytes
+        | cursor == 7 = bytes
+        | otherwise = BSL.cons inFlight bytes
+
 constructGCS ::
     -- | modulus
     Int ->
@@ -228,8 +257,8 @@ constructGCS ::
     [Word64] ->
     ByteString
 constructGCS p =
-    BiS.toByteString
-        . foldMap (golombRiceEncode p)
+    asByteString
+        . foldl' (golombRiceEncode p) emptyB
         . diffs
 
 diffs :: Num a => [a] -> [a]
@@ -239,12 +268,12 @@ unDiffs :: Num a => [a] -> [a]
 unDiffs (x : xs) = scanl (+) x xs
 unDiffs [] = []
 
-golombRiceEncode :: Int -> Word64 -> Bitstream Right
-golombRiceEncode p v = x <> BiS.singleton False <> y
+golombRiceEncode :: Int -> Bitstream -> Word64 -> Bitstream
+golombRiceEncode p b v = foldl' (flip nextBit) prefix [p - i | i <- [1 .. p]]
   where
     q = fromIntegral $ v `shiftR` p
-    x = BiS.replicate q True
-    y = BiS.fromNBits p v
+    prefix = appendBit False $ iterate (appendBit True) b !! q
+    nextBit = appendBit . testBit v
 
 fromBits :: Num a => [Bool] -> a
 fromBits = foldl' onBit 0
