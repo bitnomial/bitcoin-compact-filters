@@ -27,7 +27,7 @@ common core
       base >=4.12 && <4.19
     , bytestring >=0.10 && <0.12
     , cereal ^>=0.5
-    , haskoin-core >=0.17.1 && <0.22
+    , haskoin-core >=0.17.1 && <2.0
     , text >=1.2 && <2.1
 
      
