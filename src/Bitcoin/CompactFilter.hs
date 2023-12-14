@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -Wno-type-defaults #-}
 
 module Bitcoin.CompactFilter (
@@ -115,9 +116,11 @@ filterContents ::
 filterContents prev b = filter scriptFilter prev <> these
   where
     these = filter scriptFilter . fmap scriptOutput $ blockTxns b >>= txOut
+#if MIN_VERSION_haskoin_core(1, 0, 0)
     scriptOutput TxOut{script} = script
     txOut Tx{outputs} = outputs
     blockTxns Block{txs} = txs
+#endif
     scriptFilter scr = not (BS.null scr) && contentFilter scr
 
     contentFilter bs = case decode bs of
@@ -133,7 +136,9 @@ encodeFilter ::
 encodeFilter os b = BlockFilter s
   where
     h = headerHash $ blockHeader b
+#if MIN_VERSION_haskoin_core(1, 0, 0)
     blockHeader Block{header} = header
+#endif
     bs = toSet $ filterContents os b
     s = hashedSetConstruct (sipKey h) paramM (length bs) bs
 
