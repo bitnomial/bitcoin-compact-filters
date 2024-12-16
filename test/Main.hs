@@ -1,10 +1,6 @@
-module Main where
+{-# LANGUAGE OverloadedRecordDot #-}
 
-import Data.Serialize (decode, encode)
-import Haskoin.Block (blockHeader, headerHash)
-import Test.Tasty (TestTree, defaultMain, testGroup)
-import Test.Tasty.HUnit (testCase, (@?=))
-import Test.Tasty.QuickCheck (elements, forAll, testProperty, (===))
+module Main where
 
 import Bitcoin.CompactFilter (
     blockFilterHeader,
@@ -12,27 +8,34 @@ import Bitcoin.CompactFilter (
     filterContents,
     isMember,
  )
+import Data.Serialize (decode, encode)
+import Haskoin.Block (Block (..), headerHash)
+import Haskoin.Crypto (Ctx (..), withContext)
 import Test.CompactFilter (genBlockFilter)
 import qualified Test.Examples.Bip as BIP
 import qualified Test.Examples.Mainnet as Mainnet
+import Test.Tasty (TestTree, defaultMain, testGroup)
+import Test.Tasty.HUnit (testCase, (@?=))
+import Test.Tasty.QuickCheck (elements, forAll, testProperty, (===))
 import Test.Util (Example (..))
 
 main :: IO ()
 main = do
     bipExamples <- BIP.examples
     mainnetExamples <- Mainnet.examples
-    defaultMain . testGroup "bip158 unit tests" $
-        [ testGroup "Serialization" [testRoundtrip]
-        , testGroup
-            "Filter"
-            [ testGroup "BIP 158" $ testFilter <$> bipExamples
-            , testGroup "Mainnet" $ testFilter <$> mainnetExamples
+    withContext $ \ctx ->
+        defaultMain . testGroup "bip158 unit tests" $
+            [ testGroup "Serialization" [testRoundtrip ctx]
+            , testGroup
+                "Filter"
+                [ testGroup "BIP 158" $ testFilter <$> bipExamples
+                , testGroup "Mainnet" $ testFilter <$> mainnetExamples
+                ]
             ]
-        ]
 
-testRoundtrip :: TestTree
-testRoundtrip = testProperty "serialization round trip" . forAll genBlockFilter $ \bf ->
-    decode (encode bf) === Right bf
+testRoundtrip :: Ctx -> TestTree
+testRoundtrip ctx = testProperty "serialization round trip" . forAll (genBlockFilter ctx) $
+    \bf -> decode (encode bf) === Right bf
 
 testFilter :: Example -> TestTree
 testFilter v = testGroup (testLabel v) $ [construction] <> [membership | not (null ss)]
@@ -47,7 +50,7 @@ testFilter v = testGroup (testLabel v) $ [construction] <> [membership | not (nu
 
     ourFilter = encodeFilter (examplePrevOuts v) block
     ourHeader = blockFilterHeader (examplePrevHeader v) ourFilter
-    bh = headerHash $ blockHeader block
+    bh = headerHash block.header
     ss = filterContents (examplePrevOuts v) block
 
     block = exampleBlock v
